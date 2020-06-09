@@ -1,0 +1,109 @@
+---
+title: "Make RMD"
+output: html_document
+resource_files:
+- config.yml
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(drake)
+require(dplyr)
+require(visNetwork)
+require(lubridate)
+require(ggplot2)
+require(config)
+```
+
+
+This example is adapted from `drake::drake_example()`. 
+
+This R Markdown document is a "parent" document, responsible for running the
+drake plan, which includes a step that renders and then deploys to Connect the
+final HTML report. A few key steps to get drake and Connect to work:
+
+- You need to have a directory on Connect that is writable by the report RunAs user and can be used for the cache; this will dramatically speed up report re-rendering  
+
+- You will need to provide an API key so the parent report can publish the result report on your behalf
+
+First, we will use the `config` package to tell drake to use the standard cache
+in development, but a special path when rendered on Connect. This switch takes
+advantage of a [config
+setting](https://docs.rstudio.com/connect/admin/process-management/#using-the-config-package)
+active by default when content is rendered on Connect. Be sure the path on
+Connect is writable by the user who will run the content on Connect (`rsconnect`
+by default). If you are in an HA environment, the directory should be a
+directory on shared storage available to all servers running Connect. The path is set in `config.yml`. 
+
+```{r set-cache, echo = TRUE}
+drake_settings <- config::get('drake')
+cache_path <- drake_settings$path
+
+if (!is.null(drake_cache(cache_path))) {
+  cache <- new_cache(cache_path, hash_algorithm = "md5")
+} else {
+  cache <- drake_cache(cache_path)
+}
+```
+
+Next we will set our credentials so that this parent document can publish the child report on our behalf, using the `CONNECT_API_KEY` and `CONNECT_SERVER` environment variables. These exact variables should be used in order for the upload function below to work, using defaults built into the `connectapi` package.
+
+**NOTE**: The first time you publish the report to Connect, these variables will not be set and the report will fail. Luckily, we are caching! Simply set the environment variables in Connect and re-run the report.
+
+```{r set-env, echo=TRUE}
+CONNECT_API_KEY <- Sys.getenv("CONNECT_API_KEY")
+CONNECT_SERVER <- Sys.getenv("CONNECT_SEVER")
+```
+
+With those steps complete, we can define our custom functions, including the function we'll use to upload content; taking advantage of the *highly experimental* [`connectapi`](https://github.com/rstudio/connect) package.
+
+```{r def-funcs, echo=TRUE}
+create_plot <- function(data) {
+  ggplot(data, aes(x = Petal.Width, fill = Species)) +
+    geom_histogram(binwidth = 0.25) +
+    theme_gray(20)
+}
+
+
+#' Upload to Connect
+#'
+#' @param path The path to the single, standalone HTML file to deploy to Connect
+#' @param NAME The name for the content on Connect 
+#'
+#' @return The URL for the content on Connect
+#' @export
+#' @details This function takes a single, standalone HTML file and deploys to Connect, assuming the CONNECT_SERVER and CONNECT_API_KEY environment variables are set. The NAME argument controls the behavior; a new name will create a new endpoint on Connect, but re-using the same name will attempt to find and update the existing content.
+upload_to_connect <- function(path, NAME) {
+  print(fs::dir_ls())
+  client <- connectapi::connect()
+  connectapi::deploy(client, 
+                     name = NAME, 
+                     bundle = connectapi::bundle_static(path)
+  )
+  
+}
+```
+
+Finally, we can define and execute our plan:
+
+```{r plan, echo=TRUE}
+# The workflow plan data frame outlines what you are going to do.
+plan <- drake_plan(
+  raw_data = readxl::read_excel(file_in("raw_data.xlsx")),
+  data = raw_data %>%
+    mutate(Species = forcats::fct_inorder(Species)),
+  hist = create_plot(data),
+  fit = lm(Sepal.Width ~ Petal.Width + Species, data),
+  report = rmarkdown::render(
+    knitr_in("report.Rmd"),
+    output_file = file_out("report.html"),
+    quiet = TRUE
+  ),
+  content = upload_to_connect(file_in("report.html"), 'drake-test-new')
+)
+vis_drake_graph(plan)
+```
+
+```{r run, echo=TRUE}
+make(plan, cache = cache)
+```

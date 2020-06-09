@@ -1,0 +1,7 @@
+rsconnect:
+  drake:
+     path: '/connect-data/drake-test'
+
+default:
+  drake:
+     path: './.drake'
