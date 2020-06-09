@@ -13,6 +13,7 @@ require(visNetwork)
 require(lubridate)
 require(ggplot2)
 require(config)
+library(rsconnect)
 ```
 
 
@@ -40,7 +41,7 @@ drake_settings <- config::get('drake')
 cache_path <- drake_settings$path
 
 if (!is.null(drake_cache(cache_path))) {
-  cache <- new_cache(cache_path, hash_algorithm = "md5")
+  cache <- new_cache(cache_path, hash_algorithm = drake_settings$hash)
 } else {
   cache <- drake_cache(cache_path)
 }
