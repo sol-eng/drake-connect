@@ -1,7 +1,9 @@
 rsconnect:
   drake:
-     path: '/connect-data/drake-test'
+     hash: 'md5'
+     path: '/mnt/shared-data/drake-test/'
 
 default:
   drake:
+     hash: 'xxhash64'
      path: './.drake'
