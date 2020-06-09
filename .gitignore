@@ -5,3 +5,5 @@
 .Renviron*
 .Rprofile*
 .drake/
+*.html
+bundle*/
